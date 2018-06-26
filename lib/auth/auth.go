@@ -28,6 +28,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -846,6 +847,99 @@ func (s *AuthServer) checkTokenTTL(tok *services.ProvisionToken) bool {
 		return false
 	}
 	return true
+}
+
+type GetNodeRequest struct {
+	Namespace string
+	Host      string
+	Port      string
+	Labels    map[string]string
+	Limit     int
+}
+
+func (r *GetNodeRequest) CheckAndSetDefaults() error {
+	if r.Namespace == "" {
+		r.Namespace = defaults.Namespace
+	}
+	if r.Limit == 0 {
+		r.Limit = 65536
+	}
+
+	return nil
+}
+
+func (s *AuthServer) GetNode(req GetNodeRequest) ([]services.Server, error) {
+	err = req.CheckAndSetDefaults()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	servers, err := s.GetNodes(req.Namespace)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	result := make([]services.Server, 0, len(servers))
+
+	// Resolve the DNS name to the host's address.
+	ips, _ := net.LookupHost(req.Host)
+
+	// Enumerate over server and find a server that is registered with
+	// the matching hostname, IP, or label.
+	for _, server := range servers {
+		if !matchHost(req, ips, server) {
+			continue
+		}
+
+		if !matchLabel(req, server) {
+			continue
+		}
+
+		result = append(result, server)
+	}
+
+	// Apply limit filter.
+	var limit = len(result)
+	if req.Limit < limit {
+		limit = req.Limit
+	}
+	return result[:limit], nil
+}
+
+// matchHost returns a boolean if the server matches the host or ipFilter.
+func matchHost(req GetNodeRequest, ipFilter []string, server services.Server) bool {
+	// If no host filter was provided, match any services.Server.
+	if req.Host == "" {
+		return true
+	}
+
+	// Check if the client passed in a port. No port or "0" imply a port was not
+	// specified.
+	specifiedPort := req.Port != "" && req.Port != "0"
+
+	ip, port, err := net.SplitHostPort(server.GetAddr())
+	if err != nil {
+		log.Errorf("Unable to split hostport: %v: %v.", server.GetAddr(), err)
+		return false
+	}
+
+	if req.Host == ip || req.Host == server.GetHostname() || utils.SliceContainsStr(ips, ip) {
+		// If the client did not specify a port take any port otherwise match
+		// exact port.
+		if !specifiedPort || req.Port == port {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchLabel(req GetNodeRequest, server services.Server) bool {
+	if len(req.Labels) == 0 {
+		return true
+	}
+
+	return server.MatchAgainst(req.Labels)
 }
 
 // RegisterUsingTokenRequest is a request to register with

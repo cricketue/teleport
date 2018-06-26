@@ -1082,6 +1082,7 @@ func (process *TeleportProcess) newLocalCache(clt auth.ClientI, cacheName []stri
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+	fmt.Printf("--> newLocalCache: cacheName: %v, CacheMaxTTL: %v\n", cacheName, process.Config.CachePolicy.TTL)
 	return state.NewCachingAuthClient(state.Config{
 		AccessPoint:    clt,
 		Backend:        cacheBackend,
