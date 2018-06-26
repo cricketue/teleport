@@ -104,6 +104,7 @@ func NewAPIServer(config *APIConfig) http.Handler {
 	// Servers and presence heartbeat
 	srv.POST("/:version/namespaces/:namespace/nodes", srv.withAuth(srv.upsertNode))
 	srv.GET("/:version/namespaces/:namespace/nodes", srv.withAuth(srv.getNodes))
+	srv.GET("/:version/namespaces/:namespace/nodes/resolve", srv.withAuth(srv.resolveNode))
 	srv.POST("/:version/authservers", srv.withAuth(srv.upsertAuthServer))
 	srv.GET("/:version/authservers", srv.withAuth(srv.getAuthServers))
 	srv.POST("/:version/proxies", srv.withAuth(srv.upsertProxy))
@@ -318,6 +319,29 @@ func (s *APIServer) upsertServer(auth ClientI, role teleport.Role, w http.Respon
 // upsertNode is called by remote SSH nodes when they ping back into the auth service
 func (s *APIServer) upsertNode(auth ClientI, w http.ResponseWriter, r *http.Request, p httprouter.Params, version string) (interface{}, error) {
 	return s.upsertServer(auth, teleport.RoleNode, w, r, p, version)
+}
+
+// resolveNode
+func (s *APIServer) resolveNode(auth ClientI, w http.ResponseWriter, r *http.Request, p httprouter.Params, version string) (interface{}, error) {
+	rawRequest, ok := r.URL.Query()["request"]
+	if !ok {
+		return nil, trace.BadParameter("request not found")
+	}
+
+	var rnr ResolveNodeRequest
+	fmt.Printf("--> apiserver.go: request: %v\n", rawRequest)
+	err := json.Unmarshal([]byte(rawRequest[0]), &rnr)
+	if err != nil {
+		fmt.Printf("--> apiserver.go: json.Unmarshal: %v\n", err)
+		return nil, trace.Wrap(err)
+	}
+
+	servers, err := auth.ResolveNode(rnr)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return marshalServers(servers, version)
 }
 
 // getNodes returns registered SSH nodes

@@ -117,6 +117,11 @@ func NewAuthServer(cfg *InitConfig, opts ...AuthServerOption) (*AuthServer, erro
 		log.Infof("Auth server is skipping periodic operations.")
 	}
 
+	// start sync loop that keeps cluster config synced with what's in backend.
+	// this is used by the context passed in requests to always have a fresh copy
+	// of the cluster config without hammering the backend.
+	go as.syncCachedNodesLoop()
+
 	return &as, nil
 }
 
@@ -160,6 +165,10 @@ type AuthServer struct {
 
 	// kubeCACertPath is a path to kubernetes certificate authority
 	kubeCACertPath string
+
+	//
+	cachedNodes   []services.Server
+	cachedNodesMu sync.RWMutex
 }
 
 // runPeriodicOperations runs some periodic bookkeeping operations
@@ -849,65 +858,47 @@ func (s *AuthServer) checkTokenTTL(tok *services.ProvisionToken) bool {
 	return true
 }
 
-type GetNodeRequest struct {
-	Namespace string
-	Host      string
-	Port      string
-	Labels    map[string]string
-	Limit     int
+type ResolveNodeRequest struct {
+	Namespace string            `json:"namespace"`
+	Host      string            `json:"host"`
+	Port      string            `json:"port"`
+	HostUUID  string            `json:"uuid"`
+	Labels    map[string]string `json:"labels"`
 }
 
-func (r *GetNodeRequest) CheckAndSetDefaults() error {
+func (r *ResolveNodeRequest) CheckAndSetDefaults() error {
 	if r.Namespace == "" {
 		r.Namespace = defaults.Namespace
-	}
-	if r.Limit == 0 {
-		r.Limit = 65536
 	}
 
 	return nil
 }
 
-func (s *AuthServer) GetNode(req GetNodeRequest) ([]services.Server, error) {
-	err = req.CheckAndSetDefaults()
+func (s *AuthServer) resolveNode(req ResolveNodeRequest) ([]services.Server, error) {
+	err := req.CheckAndSetDefaults()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	servers, err := s.GetNodes(req.Namespace)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
+	servers := s.getCachedNodes()
 	result := make([]services.Server, 0, len(servers))
 
 	// Resolve the DNS name to the host's address.
 	ips, _ := net.LookupHost(req.Host)
 
-	// Enumerate over server and find a server that is registered with
-	// the matching hostname, IP, or label.
+	// Enumerate over servers and find a server that is registered with
+	// the matching hostname, IP, label, or UUID.
 	for _, server := range servers {
-		if !matchHost(req, ips, server) {
-			continue
+		if matchHost(req, ips, server) || matchLabel(req, server) || matchUUID(req, server) {
+			result = append(result, server)
 		}
-
-		if !matchLabel(req, server) {
-			continue
-		}
-
-		result = append(result, server)
 	}
 
-	// Apply limit filter.
-	var limit = len(result)
-	if req.Limit < limit {
-		limit = req.Limit
-	}
-	return result[:limit], nil
+	return result, nil
 }
 
 // matchHost returns a boolean if the server matches the host or ipFilter.
-func matchHost(req GetNodeRequest, ipFilter []string, server services.Server) bool {
+func matchHost(req ResolveNodeRequest, ips []string, server services.Server) bool {
 	// If no host filter was provided, match any services.Server.
 	if req.Host == "" {
 		return true
@@ -934,12 +925,20 @@ func matchHost(req GetNodeRequest, ipFilter []string, server services.Server) bo
 	return false
 }
 
-func matchLabel(req GetNodeRequest, server services.Server) bool {
+func matchLabel(req ResolveNodeRequest, server services.Server) bool {
 	if len(req.Labels) == 0 {
 		return true
 	}
 
 	return server.MatchAgainst(req.Labels)
+}
+
+func matchUUID(req ResolveNodeRequest, server services.Server) bool {
+	if req.HostUUID == "" {
+		return true
+	}
+
+	return server.GetName() == req.HostUUID
 }
 
 // RegisterUsingTokenRequest is a request to register with
@@ -1197,6 +1196,59 @@ const (
 	// TokenLenBytes is len in bytes of the invite token
 	TokenLenBytes = 16
 )
+
+// syncCachedClusterConfigLoop keeps updating the cached cluster config.
+func (a *AuthServer) syncCachedNodesLoop() {
+	// update the cache at the same rate nodes heartbeat
+	ticker := time.NewTicker(defaults.ServerHeartbeatTTL)
+	defer ticker.Stop()
+
+	err := a.syncCachedNodes()
+	if err != nil {
+		log.Warnf("failed to sync cluster config: %v", err)
+	}
+
+	for {
+		select {
+		case <-a.closeCtx.Done():
+			return
+		case <-ticker.C:
+			err := a.syncCachedNodes()
+			if err != nil {
+				log.Warnf("failed to sync cluster config: %v", err)
+				continue
+			}
+		}
+	}
+}
+
+// getCachedClusterConfig returns a copy of cached services.ClusterConfig. If
+// nothing is cached yet, a safe default is returned.
+func (a *AuthServer) getCachedNodes() []services.Server {
+	a.cachedNodesMu.RLock()
+	defer a.cachedNodesMu.RUnlock()
+
+	// TODO: Copy here.
+
+	fmt.Printf("--> returning cached copy of nodes.\n")
+	return a.cachedNodes
+}
+
+// syncCachedClusterConfig gets cluster config from the backend and updated
+// the cached value.
+func (a *AuthServer) syncCachedNodes() error {
+	// TODO: cache for all namespaces.
+	nodes, err := a.GetNodes(defaults.Namespace)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	a.cachedNodesMu.Lock()
+	defer a.cachedNodesMu.Unlock()
+
+	a.cachedNodes = nodes
+	return nil
+}
 
 // oidcClient is internal structure that stores OIDC client and its config
 type oidcClient struct {

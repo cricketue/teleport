@@ -450,7 +450,13 @@ func UnmarshalServerResource(data []byte, kind string) (Server, error) {
 		s.Kind = kind
 		return s.V2(), nil
 	case V2:
+		var _ = utils.UnmarshalWithSchema
 		var s ServerV2
+		//start := time.Now()
+		//err := json.Unmarshal(data, &s)
+		//if err != nil {
+		//	return nil, trace.BadParameter(err.Error())
+		//}
 		if err := utils.UnmarshalWithSchema(GetServerSchema(), &s, data); err != nil {
 			return nil, trace.BadParameter(err.Error())
 		}

@@ -115,21 +115,35 @@ func (proxy *ProxyClient) FindServersByLabels(ctx context.Context, namespace str
 	if namespace == "" {
 		return nil, trace.BadParameter(auth.MissingNamespaceError)
 	}
-	nodes := make([]services.Server, 0)
-	site, err := proxy.ClusterAccessPoint(ctx, false)
+
+	authClient, err := proxy.ConnectToSite(ctx, false)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	siteNodes, err := site.GetNodes(namespace)
+
+	nodes, err := authClient.ResolveNode(auth.ResolveNodeRequest{
+		Namespace: defaults.Namespace,
+		Labels:    labels,
+	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	// look at every node on this site and see which ones match:
-	for _, node := range siteNodes {
-		if node.MatchAgainst(labels) {
-			nodes = append(nodes, node)
-		}
-	}
+
+	//nodes := make([]services.Server, 0)
+	//site, err := proxy.ClusterAccessPoint(ctx, false)
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//siteNodes, err := site.GetNodes(namespace)
+	//if err != nil {
+	//	return nil, trace.Wrap(err)
+	//}
+	//// look at every node on this site and see which ones match:
+	//for _, node := range siteNodes {
+	//	if node.MatchAgainst(labels) {
+	//		nodes = append(nodes, node)
+	//	}
+	//}
 	return nodes, nil
 }
 

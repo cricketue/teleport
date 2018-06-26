@@ -306,6 +306,14 @@ func (a *AuthWithRoles) UpsertNode(s services.Server) error {
 	return a.authServer.UpsertNode(s)
 }
 
+func (a *AuthWithRoles) ResolveNode(req ResolveNodeRequest) ([]services.Server, error) {
+	if err := a.action(req.Namespace, services.KindNode, services.VerbList); err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return a.authServer.resolveNode(req)
+}
+
 func (a *AuthWithRoles) GetNodes(namespace string) ([]services.Server, error) {
 	if err := a.action(namespace, services.KindNode, services.VerbList); err != nil {
 		return nil, trace.Wrap(err)

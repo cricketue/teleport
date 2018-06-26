@@ -25,14 +25,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/gravitational/teleport"
+	"github.com/gravitational/teleport/lib/auth"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/reversetunnel"
-	"github.com/gravitational/teleport/lib/services"
+	//"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/srv"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/utils"
@@ -236,57 +238,77 @@ func (t *proxySubsys) proxyToHost(
 	// but failing to fetch the list of servers is also OK, we'll use standard
 	// network resolution (by IP or DNS)
 	//
-	var (
-		servers []services.Server
-		err     error
-	)
-	localDomain, _ := t.srv.authService.GetDomainName()
-	// going to "local" CA? lets use the caching 'auth service' directly and avoid
-	// hitting the reverse tunnel link (it can be offline if the CA is down)
-	if site.GetName() == localDomain {
-		servers, err = t.srv.authService.GetNodes(t.namespace)
-		if err != nil {
-			t.log.Warn(err)
-		}
-	} else {
-		// "remote" CA? use a reverse tunnel to talk to it:
-		siteClient, err := site.CachingAccessPoint()
-		if err != nil {
-			t.log.Warn(err)
-		} else {
-			servers, err = siteClient.GetNodes(t.namespace)
-			if err != nil {
-				t.log.Warn(err)
-			}
-		}
-	}
+	//var (
+	//	servers []services.Server
+	//	err     error
+	//)
 
-	// if port is 0, it means the client wants us to figure out
-	// which port to use
+	//localDomain, _ := t.srv.authService.GetDomainName()
+
+	//// going to "local" CA? lets use the caching 'auth service' directly and avoid
+	//// hitting the reverse tunnel link (it can be offline if the CA is down)
+	//if site.GetName() == localDomain {
+	//	servers, err = t.srv.authService.GetNodes(t.namespace)
+	//	if err != nil {
+	//		t.log.Warn(err)
+	//	}
+	//} else {
+	//	// "remote" CA? use a reverse tunnel to talk to it:
+	//	siteClient, err := site.CachingAccessPoint()
+	//	if err != nil {
+	//		t.log.Warn(err)
+	//	} else {
+	//		servers, err = siteClient.GetNodes(t.namespace)
+	//		if err != nil {
+	//			t.log.Warn(err)
+	//		}
+	//	}
+	//}
+
+	//// if port is 0, it means the client wants us to figure out
+	//// which port to use
 	specifiedPort := len(t.port) > 0 && t.port != "0"
-	ips, _ := net.LookupHost(t.host)
-	t.log.Debugf("proxy connecting to host=%v port=%v, exact port=%v", t.host, t.port, specifiedPort)
+	//ips, _ := net.LookupHost(t.host)
+	//t.log.Debugf("proxy connecting to host=%v port=%v, exact port=%v", t.host, t.port, specifiedPort)
 
-	// enumerate and try to find a server with self-registered with a matching name/IP:
-	var server services.Server
-	for i := range servers {
-		ip, port, err := net.SplitHostPort(servers[i].GetAddr())
-		if err != nil {
-			t.log.Error(err)
-			continue
-		}
+	//// enumerate and try to find a server with self-registered with a matching name/IP:
+	//var server services.Server
+	//for i := range servers {
+	//	ip, port, err := net.SplitHostPort(servers[i].GetAddr())
+	//	if err != nil {
+	//		t.log.Error(err)
+	//		continue
+	//	}
 
-		if t.host == ip || t.host == servers[i].GetHostname() || utils.SliceContainsStr(ips, ip) {
-			if !specifiedPort || t.port == port {
-				server = servers[i]
-				break
-			}
-		}
+	//	if t.host == ip || t.host == servers[i].GetHostname() || utils.SliceContainsStr(ips, ip) {
+	//		if !specifiedPort || t.port == port {
+	//			server = servers[i]
+	//			break
+	//		}
+	//	}
+	//}
+
+	start := time.Now()
+	authClient, err := site.GetClient()
+	if err != nil {
+		return trace.Wrap(err)
 	}
+	fmt.Printf("--> proxy.go: Auth Client: %v\n", time.Now().Sub(start))
+
+	start = time.Now()
+	servers, err := authClient.ResolveNode(auth.ResolveNodeRequest{
+		Namespace: defaults.Namespace,
+		Host:      t.host,
+		Port:      t.port,
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	fmt.Printf("--> proxy.go: ResolveNode: %v\n", time.Now().Sub(start))
 
 	var serverAddr string
-	if server != nil {
-		serverAddr = server.GetAddr()
+	if len(servers) > 0 {
+		serverAddr = servers[0].GetAddr()
 	} else {
 		if !specifiedPort {
 			t.port = strconv.Itoa(defaults.SSHServerListenPort)

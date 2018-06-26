@@ -780,21 +780,35 @@ func (tc *TeleportClient) Join(ctx context.Context, namespace string, sessionID 
 	}
 	serverID := session.Parties[0].ServerID
 
-	// find a server address by its ID
-	nodes, err := site.GetNodes(namespace)
+	// Ask the backend if a server with this UUID exists.
+	nodes, err := site.ResolveNode(auth.ResolveNodeRequest{
+		Namespace: defaults.Namespace,
+		HostUUID:  serverID,
+	})
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	var node services.Server
-	for _, n := range nodes {
-		if n.GetName() == serverID {
-			node = n
-			break
-		}
-	}
-	if node == nil {
+	if len(nodes) == 0 {
 		return trace.NotFound(notFoundErrorMessage)
 	}
+	node := nodes[0]
+
+	//// find a server address by its ID
+	//nodes, err := site.GetNodes(namespace)
+	//if err != nil {
+	//	return trace.Wrap(err)
+	//}
+	//var node services.Server
+	//for _, n := range nodes {
+	//	if n.GetName() == serverID {
+	//		node = n
+	//		break
+	//	}
+	//}
+	//if node == nil {
+	//	return trace.NotFound(notFoundErrorMessage)
+	//}
+
 	// connect to server:
 	fullNodeAddr := node.GetAddr()
 	if tc.SiteName != "" {

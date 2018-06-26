@@ -563,6 +563,41 @@ func (c *Client) UpsertNode(s services.Server) error {
 	return trace.Wrap(err)
 }
 
+func (c *Client) ResolveNode(req ResolveNodeRequest) ([]services.Server, error) {
+	bytes, err := json.Marshal(req)
+	if err != nil {
+		//fmt.Printf("--> clt.go: ResolveNode: json.Marshal: %v\n", err)
+		return nil, trace.Wrap(err)
+	}
+	//fmt.Printf("--> clt.go: ResolveNode: %v\n", string(bytes))
+	start := time.Now()
+	out, err := c.Get(c.Endpoint("namespaces", req.Namespace, "nodes", "resolve"), url.Values{
+		"request": []string{string(bytes)},
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	fmt.Printf("--> clt.go: ResolveNode: Get: %v\n", time.Now().Sub(start))
+
+	mmm := services.GetServerMarshaler()
+	start = time.Now()
+	var items []json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &items); err != nil {
+		return nil, trace.Wrap(err)
+	}
+	re := make([]services.Server, len(items))
+	for i, raw := range items {
+		s, err := mmm.UnmarshalServer(raw, services.KindNode)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		re[i] = s
+	}
+	fmt.Printf("--> clt.go: ResolveNode: Marshal: %v\n", time.Now().Sub(start))
+
+	return re, nil
+}
+
 // GetNodes returns the list of servers registered in the cluster.
 func (c *Client) GetNodes(namespace string) ([]services.Server, error) {
 	if namespace == "" {
@@ -2256,4 +2291,7 @@ type ClientI interface {
 	// ProcessKubeCSR processes CSR request against Kubernetes CA, returns
 	// signed certificate if sucessfull.
 	ProcessKubeCSR(req KubeCSR) (*KubeCSRResponse, error)
+
+	//
+	ResolveNode(ResolveNodeRequest) ([]services.Server, error)
 }
