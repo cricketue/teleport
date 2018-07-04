@@ -1,0 +1,81 @@
+.grv-file-transfer {
+  position: absolute;
+  max-height: 500px;
+  width: 600px;
+  background-color: #090B0A;
+  z-index: 4;
+  right: 0px;
+  bottom: 0px;
+  color: white;
+
+  display: flex;
+  flex-direction: column;
+
+
+  .grv-file-transfer-input{
+    background-color: #151d20;
+  }
+
+  .grv-file-transfer-download{
+    display: flex;
+
+  }
+
+  .grv-file-transfer-header{
+
+  }
+
+  .grv-file-transfer-content{
+    overflow: auto;
+    margin: 5px 0 10px 0;
+    overflow: auto;
+    flex: 1;
+    max-height: 150px;
+  }
+
+  .grv-file-transfer-file-list-cols{
+    display: flex;
+    :nth-child(1){
+      width: 400px;
+    }
+
+    :nth-child(2){
+      width: 100px;
+      text-align: center;
+    }
+  }
+
+  .grv-file-transfer-file-list-item{
+    display: flex;
+    margin: 0px 0 10px 0;
+
+    .grv-file-transfer-file-status{
+      text-align: center;
+      width: 100px;
+    }
+
+    .grv-file-transfer-file-path{
+      width: 400px;
+      word-wrap: break-word;
+      word-break: break-all;
+      color: rgb(142, 148, 151);
+    }
+
+    .grv-file-transfer-file-close{
+      width: 40px;
+      text-align: center;
+      a{
+        color: $dark-gray;
+      }
+
+    }
+
+    &.--failed{
+      .grv-file-transfer-file-path,
+      .grv-file-transfer-file-status{
+        color: $red;
+      }
+    }
+
+  }
+}
