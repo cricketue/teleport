@@ -1384,17 +1384,22 @@ func MatchNamespace(selector []string, namespace string) bool {
 func MatchLabels(selector map[string]string, target map[string]string) bool {
 	// empty selector matches nothing
 	if len(selector) == 0 {
+		log.Errorf("--> MatchLabels: Empty selector, no match.")
 		return false
 	}
 	// *: * matches everything even empty target set
 	if selector[Wildcard] == Wildcard {
+		log.Errorf("--> MatchLabels: Wildcard, matched.")
 		return true
 	}
 	for key, val := range selector {
 		if targetVal, ok := target[key]; !ok || (val != targetVal && val != Wildcard) {
+			log.Errorf("--> MatchLabels: selector key not in target or different value, no match.")
 			return false
 		}
 	}
+
+	log.Errorf("--> MatchLabels: Matched.")
 	return true
 }
 
@@ -1483,13 +1488,16 @@ func (set RoleSet) CheckAccessToServer(login string, s Server) error {
 		}
 	}
 
+	log.Errorf("--> CheckAccessToServer: Checking allow rules.")
 	// check allow rules: namespace, label, and login have to all match in
 	// one role in the role set to be granted access.
 	for _, role := range set {
 		matchNamespace := MatchNamespace(role.GetNamespaces(Allow), s.GetNamespace())
 		matchLabels := MatchLabels(role.GetNodeLabels(Allow), s.GetAllLabels())
+		log.Errorf("--> CheckAccessToServer: selector=%v, target=%v => %v for role=%v.", role.GetNodeLabels(Allow), s.GetAllLabels(), matchLabels, role)
 		matchLogin := MatchLogin(role.GetLogins(Allow), login)
 		if matchNamespace && matchLabels && matchLogin {
+			log.Errorf("--> CheckAccessToServer: Matched.")
 			return nil
 		}
 
@@ -1498,6 +1506,7 @@ func (set RoleSet) CheckAccessToServer(login string, s Server) error {
 		errs = append(errs, trace.AccessDenied(errorMessage))
 	}
 
+	log.Errorf("--> CheckAccessToServer: Denied.")
 	errorMessage := fmt.Sprintf("access to node %v is denied to role(s): %v", s.GetHostname(), errs)
 	log.Warnf("[RBAC] Denied access to server: " + errorMessage)
 	return trace.AccessDenied(errorMessage)
